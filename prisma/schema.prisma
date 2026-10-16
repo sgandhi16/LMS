@@ -1,0 +1,307 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Auth / Users
+// ─────────────────────────────────────────────
+
+enum Role {
+  STUDENT
+  ADMIN
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(STUDENT)
+  isActive     Boolean  @default(true)
+  avatarUrl    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  enrollments     Enrollment[]
+  moduleProgress  ModuleProgress[]
+  attempts        Attempt[]
+  sessions        Session[]
+
+  @@index([email])
+  @@index([role])
+}
+
+// Auth.js sessions
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────
+// Sports & Modules
+// ─────────────────────────────────────────────
+
+model Sport {
+  id               String   @id @default(cuid())
+  name             String
+  slug             String   @unique
+  description      String?
+  coverImageUrl    String?
+  accentColor      String   @default("#6366f1") // sport-specific accent
+  sequentialUnlock Boolean  @default(false)
+  isPublished      Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  modules     Module[]
+  enrollments Enrollment[]
+
+  @@index([slug])
+  @@index([isPublished])
+}
+
+model Module {
+  id               String   @id @default(cuid())
+  sportId          String
+  title            String
+  description      String?
+  order            Int
+  requireVideoWatch Boolean @default(true)
+  requireTestPass  Boolean  @default(true)
+  isPublished      Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  sport          Sport            @relation(fields: [sportId], references: [id], onDelete: Cascade)
+  video          Video?
+  test           Test?
+  attachments    Attachment[]
+  moduleProgress ModuleProgress[]
+
+  @@unique([sportId, order])
+  @@index([sportId])
+  @@index([order])
+}
+
+// ─────────────────────────────────────────────
+// Videos
+// ─────────────────────────────────────────────
+
+enum VideoProvider {
+  LOCAL
+  S3
+  YOUTUBE
+  VIMEO
+}
+
+model Video {
+  id          String        @id @default(cuid())
+  moduleId    String        @unique
+  provider    VideoProvider @default(S3)
+  storageKey  String?       // S3/MinIO object key
+  externalUrl String?       // YouTube/Vimeo URL
+  durationSec Int?
+  sizeBytes   BigInt?
+  mimeType    String?
+  isReady     Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  module Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+}
+
+model Attachment {
+  id        String   @id @default(cuid())
+  moduleId  String
+  name      String
+  storageKey String
+  sizeBytes BigInt?
+  mimeType  String?
+  createdAt DateTime @default(now())
+
+  module Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@index([moduleId])
+}
+
+// ─────────────────────────────────────────────
+// Tests & Questions
+// ─────────────────────────────────────────────
+
+model Test {
+  id             String   @id @default(cuid())
+  moduleId       String   @unique
+  title          String
+  passPercent    Float    @default(70)
+  timeLimitSec   Int?     // null = no limit
+  maxAttempts    Int?     // null = unlimited
+  shuffleQuestions Boolean @default(false)
+  shuffleOptions   Boolean @default(false)
+  revealAnswers    Boolean @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  module    Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  questions Question[]
+  attempts  Attempt[]
+}
+
+enum QuestionType {
+  MCQ_SINGLE
+  MCQ_MULTI
+  SHORT_ANSWER
+}
+
+model Question {
+  id          String       @id @default(cuid())
+  testId      String
+  type        QuestionType
+  prompt      String
+  imageUrl    String?
+  marks       Float        @default(1)
+  explanation String?
+  order       Int
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  test            Test             @relation(fields: [testId], references: [id], onDelete: Cascade)
+  options         Option[]
+  acceptedAnswers AcceptedAnswer[]
+  attemptAnswers  AttemptAnswer[]
+
+  @@index([testId])
+  @@index([order])
+}
+
+model Option {
+  id         String  @id @default(cuid())
+  questionId String
+  text       String
+  isCorrect  Boolean @default(false)
+  order      Int     @default(0)
+
+  question       Question        @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  attemptAnswers AttemptAnswer[] @relation("SelectedOptions")
+
+  @@index([questionId])
+}
+
+model AcceptedAnswer {
+  id                  String  @id @default(cuid())
+  questionId          String
+  text                String
+  caseInsensitive     Boolean @default(true)
+  trimWhitespace      Boolean @default(true)
+  fuzzyMatch          Boolean @default(false)
+  levenshteinThreshold Int    @default(2) // max edit distance for fuzzy
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+}
+
+// ─────────────────────────────────────────────
+// Enrollments & Progress
+// ─────────────────────────────────────────────
+
+model Enrollment {
+  id         String   @id @default(cuid())
+  userId     String
+  sportId    String
+  enrolledAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sport Sport @relation(fields: [sportId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sportId])
+  @@index([userId])
+  @@index([sportId])
+}
+
+model ModuleProgress {
+  id             String    @id @default(cuid())
+  userId         String
+  moduleId       String
+  watchedSec     Float     @default(0)
+  watchPercent   Float     @default(0) // 0.0 – 1.0
+  videoCompleted Boolean   @default(false)
+  testPassed     Boolean   @default(false)
+  isCompleted    Boolean   @default(false) // derived: video ∧ test (per module config)
+  completedAt    DateTime?
+  lastWatchedAt  DateTime?
+  updatedAt      DateTime  @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  module Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, moduleId])
+  @@index([userId])
+  @@index([moduleId])
+}
+
+// ─────────────────────────────────────────────
+// Test Attempts
+// ─────────────────────────────────────────────
+
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  EXPIRED
+}
+
+model Attempt {
+  id          String        @id @default(cuid())
+  userId      String
+  testId      String
+  status      AttemptStatus @default(IN_PROGRESS)
+  startedAt   DateTime      @default(now())
+  submittedAt DateTime?
+  expiresAt   DateTime?     // startedAt + timeLimitSec + grace
+  score       Float?
+  maxScore    Float?
+  percent     Float?
+  passed      Boolean?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  test    Test            @relation(fields: [testId], references: [id], onDelete: Cascade)
+  answers AttemptAnswer[]
+
+  @@index([userId])
+  @@index([testId])
+  @@index([status])
+}
+
+model AttemptAnswer {
+  id           String   @id @default(cuid())
+  attemptId    String
+  questionId   String
+  textAnswer   String?
+  isCorrect    Boolean?
+  marksAwarded Float?
+  isFlagged    Boolean  @default(false) // student flagged for review
+  savedAt      DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  attempt         Attempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question        Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  selectedOptions Option[] @relation("SelectedOptions")
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+  @@index([questionId])
+}
