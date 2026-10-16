@@ -228,3 +228,14 @@ LMS/
    - Built-in rate limiting prevents brute-force attempts on `/api/auth/register` and automated script abuse on `/api/student/attempts/[id]/submit`.
 5. **Short-Lived Signed Video URLs**:
    - Video content hosted in S3/MinIO is delivered via signed URLs with configurable expiration (`SIGNED_URL_EXPIRES_IN=3600`).
+
+
+------
+
+## How to run
+# 1. Start the database
+/opt/homebrew/opt/postgresql@16/bin/pg_ctl -D /opt/homebrew/var/postgresql@16 -l logfile start
+
+# 2. Start the dev server
+cd ~/Desktop/LMS
+npm run dev
